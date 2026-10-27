@@ -1,0 +1,417 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Chapel Intro</title>
+<style>
+  @font-face { font-family: "Lilita"; src: url("assets/fonts/LilitaOne.ttf"); }
+  @font-face { font-family: "Fredoka"; src: url("assets/fonts/Fredoka.ttf"); }
+  html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+  #stage {
+    position: relative; width: 1920px; height: 1080px; overflow: hidden;
+    font-family: "Lilita", sans-serif; transform-origin: 0 0;
+  }
+  .layer { position: absolute; inset: 0; }
+  #rays {
+    position: absolute; left: 50%; top: 50%; width: 3400px; height: 3400px;
+    margin: -1700px 0 0 -1700px; border-radius: 50%;
+    background: repeating-conic-gradient(rgba(255,255,255,.16) 0 9deg, rgba(255,255,255,0) 9deg 18deg);
+    -webkit-mask: radial-gradient(circle, #000 0%, rgba(0,0,0,.5) 40%, transparent 70%);
+  }
+  .bokeh { position: absolute; border-radius: 50%; background: rgba(255,255,255,.18); }
+  .e {
+    position: absolute; left: 0; top: 0; will-change: transform;
+    filter: drop-shadow(0 28px 22px rgba(0,0,0,.28));
+  }
+  .e img { width: 100%; height: 100%; display: block; }
+  .txt {
+    position: absolute; left: 0; top: 0; width: 1920px; text-align: center;
+    white-space: nowrap; color: #fff; line-height: 1; z-index: 5;
+  }
+  .txt span { display: inline-block; will-change: transform; }
+  /* chunky 3D extruded type */
+  .x3d {
+    -webkit-text-stroke: 4px #fff;
+    paint-order: stroke fill;
+  }
+  .small {
+    font-family: "Fredoka"; font-weight: 700; color: #fff;
+    text-shadow: 0 6px 0 rgba(0,0,0,.18), 0 12px 30px rgba(0,0,0,.25);
+  }
+  #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="bg" class="layer"></div>
+  <div id="rays"></div>
+  <div id="bokeh" class="layer"></div>
+  <div id="world" class="layer"></div>
+  <div id="flash"></div>
+</div>
+<script>
+// ---------- helpers ----------
+const W = 1920, H = 1080, DURATION = 26;
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const prog = (t, t0, d) => clamp((t - t0) / d);
+const easeOutCubic = p => 1 - Math.pow(1 - p, 3);
+const easeInCubic = p => p * p * p;
+const easeInOut = p => p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+const easeOutBack = (p, s = 1.9) => 1 + (s + 1) * Math.pow(p - 1, 3) + s * Math.pow(p - 1, 2);
+const easeInBack = (p, s = 1.7) => (s + 1) * p * p * p - s * p * p;
+const easeOutElastic = p => p === 0 ? 0 : p === 1 ? 1 :
+  Math.pow(2, -10 * p) * Math.sin((p * 10 - .75) * (2 * Math.PI) / 3) + 1;
+const easeOutBounce = p => {
+  const n = 7.5625, d = 2.75;
+  if (p < 1 / d) return n * p * p;
+  if (p < 2 / d) return n * (p -= 1.5 / d) * p + .75;
+  if (p < 2.5 / d) return n * (p -= 2.25 / d) * p + .9375;
+  return n * (p -= 2.625 / d) * p + .984375;
+};
+// deterministic random
+let seed = 7;
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+// pop in at t0, pop out at t1 -> scale
+function popScale(t, t0, t1, inDur = .45, outDur = .3) {
+  if (t < t0 || t > t1 + outDur) return 0;
+  if (t < t1) return easeOutBack(prog(t, t0, inDur));
+  return 1 - easeInBack(prog(t, t1, outDur));
+}
+
+const world = document.getElementById('world');
+const E = {};
+function emoji(id, name, size) {
+  const d = document.createElement('div');
+  d.className = 'e';
+  d.style.width = d.style.height = size + 'px';
+  d.innerHTML = `<img src="assets/emoji/${name}.png">`;
+  d.style.display = 'none';
+  d._size = size;
+  world.appendChild(d);
+  E[id] = d;
+  return d;
+}
+// place centered at (x,y)
+function put(el, x, y, s = 1, r = 0, o = 1) {
+  if (s <= 0.001 || o <= 0.001) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  const half = (el._size || 0) / 2;
+  el.style.transform = `translate(${x - half}px, ${y - half}px) rotate(${r}deg) scale(${s})`;
+  el.style.opacity = o;
+}
+
+// extruded 3D text style for a given colour pair
+function x3d(face, side, depth = 14) {
+  const sh = [];
+  for (let i = 1; i <= depth; i++) sh.push(`0 ${i}px 0 ${side}`);
+  sh.push(`0 ${depth + 10}px 30px rgba(0,0,0,.35)`);
+  return { color: face, textShadow: sh.join(',') };
+}
+
+function word(id, text, size, style, cls = 'x3d') {
+  const d = document.createElement('div');
+  d.className = 'txt ' + cls;
+  d.style.fontSize = size + 'px';
+  Object.assign(d.style, style || {});
+  d.innerHTML = [...text].map(c => `<span>${c === ' ' ? '&nbsp;' : c}</span>`).join('');
+  d.style.display = 'none';
+  world.appendChild(d);
+  d._spans = [...d.querySelectorAll('span')];
+  d._size = size;
+  E[id] = d;
+  return d;
+}
+// position a word: y = vertical centre; per-letter fn(i, n) -> {dx,dy,s,r,o}
+function putWord(el, y, letterFn, groupS = 1, groupX = 0, groupR = 0) {
+  if (groupS <= 0.001) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.style.transform = `translate(${groupX}px, ${y - el._size * .55}px) rotate(${groupR}deg) scale(${groupS})`;
+  el.style.transformOrigin = `960px ${el._size * .55}px`;
+  const n = el._spans.length;
+  el._spans.forEach((sp, i) => {
+    const f = letterFn(i, n);
+    sp.style.transform = `translate(${f.dx || 0}px, ${f.dy || 0}px) rotate(${f.r || 0}deg) scale(${f.s ?? 1})`;
+    sp.style.opacity = f.o ?? 1;
+  });
+}
+// common letter animation: staggered pop with a little idle wiggle
+const popLetters = (t, t0, t1, stagger = .04, wig = 1) => (i, n) => {
+  const ti = t0 + i * stagger;
+  const s = popScale(t, ti, t1 + i * .015, .5, .25);
+  const idle = Math.sin((t - ti) * 6 + i * .9) * 6 * wig;
+  return { s, dy: idle, r: Math.sin((t - ti) * 4 + i) * 3 * wig };
+};
+
+// ---------- backgrounds ----------
+const bg = document.getElementById('bg');
+const rays = document.getElementById('rays');
+const bokehLayer = document.getElementById('bokeh');
+const bokeh = [];
+for (let i = 0; i < 18; i++) {
+  const b = document.createElement('div');
+  b.className = 'bokeh';
+  const sz = 40 + rnd() * 160;
+  b.style.width = b.style.height = sz + 'px';
+  bokehLayer.appendChild(b);
+  bokeh.push({ el: b, x: rnd() * W, y: rnd() * H, sp: 20 + rnd() * 50, ph: rnd() * 6 });
+}
+
+// palette keyframes [time, inner, outer]
+const PAL = [
+  [0,    '#ff7eb3', '#7b2ff7'],  // intro: pink/purple
+  [2.5,  '#ffe259', '#ff7a18'],  // ups: sunshine
+  [6.0,  '#5aa9ff', '#2b2d7c'],  // downs: moody blue
+  [9.5,  '#46e3b7', '#0d7ea8'],  // coaster: teal
+  [12.5, '#2b2559', '#0b0a1f'],  // pause: night
+  [15.5, '#ff9a5a', '#e0306f'],  // gather
+  [17.0, '#b388ff', '#4a1fb8'],  // worship
+  [18.5, '#7fe0ff', '#2f6fe0'],  // let go
+  [20.0, '#ffd23f', '#ff3f81'],  // CHAPEL
+];
+function hex(c) { return [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16)); }
+function mix(a, b, p) { const A = hex(a), B = hex(b); return `rgb(${A.map((v, i) => Math.round(lerp(v, B[i], p))).join(',')})`; }
+function palette(t) {
+  let i = 0;
+  while (i < PAL.length - 1 && t >= PAL[i + 1][0]) i++;
+  const cur = PAL[i], prev = PAL[Math.max(0, i - 1)];
+  const p = i === 0 ? 1 : easeInOut(prog(t, cur[0], .45));
+  return [mix(prev[1], cur[1], p), mix(prev[2], cur[2], p)];
+}
+
+// ---------- build elements ----------
+// S1 intro
+emoji('cal', 'spiral_calendar', 360);
+word('thisweek', 'THIS WEEK…', 190, x3d('#fff', '#5b1fb0'));
+// S2 ups
+word('youhad', 'you had your', 96, {}, 'small');
+word('ups', 'UPS!', 300, x3d('#fff', '#d9480f', 18));
+const UPS = ['rocket', 'trophy', 'party_popper', 'hundred_points', 'beaming_face_with_smiling_eyes',
+  'chart_increasing', 'smiling_face_with_sunglasses', 'partying_face', 'thumbs_up', 'glowing_star', 'fire', 'clapping_hands'];
+const upItems = [];
+for (let i = 0; i < 18; i++) {
+  const name = UPS[i % UPS.length];
+  upItems.push({ el: emoji('up' + i, name, 150 + rnd() * 90), x: 120 + (i / 17) * 1680 + (rnd() - .5) * 120,
+    t0: 2.65 + rnd() * 2.2, sp: 650 + rnd() * 500, rot: (rnd() - .5) * 120, wob: rnd() * 6 });
+}
+// S3 downs
+word('andyour', '…and your', 96, {}, 'small');
+word('downs', 'DOWNS.', 280, x3d('#e8f1ff', '#1b1f5e', 18));
+const DOWNS = ['weary_face', 'chart_decreasing', 'sleeping_face', 'melting_face', 'loudly_crying_face',
+  'downcast_face_with_sweat', 'thumbs_down', 'face_with_spiral_eyes', 'exploding_head', 'books'];
+const downItems = [];
+for (let i = 0; i < 16; i++) {
+  downItems.push({ el: emoji('dn' + i, DOWNS[i % DOWNS.length], 150 + rnd() * 80),
+    x: 120 + (i / 15) * 1680 + (rnd() - .5) * 120, t0: 6.1 + rnd() * 2.4, rot: (rnd() - .5) * 200,
+    land: 900 + rnd() * 120 });
+}
+emoji('rain', 'cloud_with_rain', 300);
+// S4 coaster
+emoji('coaster', 'roller_coaster', 300);
+const TRIO = [['trophy', 'The wins.'], ['grimacing_face', 'The worries.'], ['hot_beverage', 'The waaay too much coffee.']];
+TRIO.forEach(([em, txt], i) => {
+  emoji('trio' + i, em, 230);
+  word('trioT' + i, txt, i === 2 ? 92 : 110, x3d('#fff', '#075e7d', 9));
+});
+// S5 pause
+emoji('clock', 'alarm_clock', 320);
+word('righthere', 'But right here…', 130, x3d('#fff', '#3a2f7a', 10));
+word('rightnow', 'right now…', 170, x3d('#ffe27a', '#8a5a00', 12));
+emoji('exhale', 'face_exhaling', 380);
+word('breathe', 'breathe.', 150, { color: '#fff', textShadow: '0 0 40px rgba(160,200,255,.8)' }, 'small');
+// S6 three beats
+const BEATS = [
+  { em: 'people_hugging', txt: 'WE GATHER', side: '#a3123f' },
+  { em: 'raising_hands', txt: 'WE WORSHIP', side: '#2e0d82' },
+  { em: 'dove', txt: 'WE LET GO', side: '#123f9e' },
+];
+BEATS.forEach((b, i) => {
+  emoji('beatE' + i, b.em, 440);
+  word('beatT' + i, b.txt, 210, x3d('#fff', b.side, 18));
+});
+// S7 finale
+word('itstime', "IT'S TIME FOR", 120, x3d('#fff', '#b3125a', 10));
+word('chapel', 'CHAPEL', 330, x3d('#fff', '#c2185b', 24));
+emoji('church', 'church', 400);
+const CONF = ['sparkles', 'red_heart', 'musical_notes', 'party_popper', 'confetti_ball', 'heart_on_fire',
+  'glowing_star', 'raising_hands', 'musical_note', 'smiling_face_with_halo', 'folded_hands', 'smiling_face_with_hearts'];
+const conf = [];
+for (let i = 0; i < 30; i++) {
+  const a = rnd() * Math.PI * 2;
+  conf.push({ el: emoji('cf' + i, CONF[i % CONF.length], 90 + rnd() * 90), a, v: 900 + rnd() * 1100,
+    rot: (rnd() - .5) * 720, t0: 21.05 + (i % 3) * .04 });
+}
+const orbit = [];
+['sparkles', 'red_heart', 'musical_notes', 'dove', 'folded_hands', 'glowing_star'].forEach((n, i) =>
+  orbit.push(emoji('orb' + i, n, 140)));
+const flash = document.getElementById('flash');
+
+// ---------- render(t) ----------
+function render(t) {
+  // background
+  const [inner, outer] = palette(t);
+  bg.style.background = `radial-gradient(circle at 50% 45%, ${inner} 0%, ${outer} 85%)`;
+  const calm = t > 12.5 && t < 15.5;
+  const raySpeed = calm ? 2 : (t > 20 ? 30 : 14);
+  rays.style.transform = `rotate(${t * raySpeed}deg) scale(${1 + Math.sin(t * 2) * .03})`;
+  rays.style.opacity = calm ? .25 : (t > 20 ? 1 : .7);
+  bokeh.forEach(b => {
+    const dir = (t > 6 && t < 9.5) ? 1 : -1; // downs: drift down
+    const y = ((b.y + dir * t * b.sp) % (H + 200) + H + 200) % (H + 200) - 100;
+    b.el.style.transform = `translate(${b.x + Math.sin(t + b.ph) * 30}px, ${y}px)`;
+  });
+
+  // ===== S1: THIS WEEK (0 - 2.5)
+  {
+    const s = popScale(t, .1, 2.2, .7);
+    const fly = easeInBack(prog(t, 2.2, .35));
+    put(E.cal, 960, 380 - fly * 300, s * (1 + Math.sin(t * 5) * .03), Math.sin(t * 3) * 10 + (1 - easeOutCubic(prog(t, .1, .8))) * -360);
+    putWord(E.thisweek, 760, popLetters(t, .55, 2.2, .06), 1);
+  }
+
+  // ===== S2: UPS (2.5 - 6)
+  {
+    putWord(E.youhad, 330, popLetters(t, 2.55, 5.65, .03, .4));
+    const zoom = 1 + easeOutCubic(prog(t, 2.8, 3)) * .12;
+    putWord(E.ups, 560, (i, n) => {
+      const ti = 2.85 + i * .08;
+      const p = prog(t, ti, .6);
+      const s = popScale(t, ti, 5.7 + i * .02, .6);
+      return { s, dy: (1 - easeOutBack(p, 2.5)) * 500 + Math.sin(t * 7 + i) * 10, r: Math.sin(t * 5 + i) * 5 };
+    }, zoom);
+    upItems.forEach(u => {
+      const lt = t - u.t0;
+      if (lt < 0 || t > 6.2) return put(u.el, 0, 0, 0);
+      const y = H + 150 - lt * u.sp + lt * lt * 40;
+      put(u.el, u.x + Math.sin(lt * 3 + u.wob) * 40, y, Math.min(1, lt * 4), u.rot * lt * .6);
+    });
+  }
+
+  // ===== S3: DOWNS (6 - 9.5)
+  {
+    putWord(E.andyour, 300, popLetters(t, 6.05, 9.15, .03, .4));
+    putWord(E.downs, 520, (i, n) => {
+      const ti = 6.3 + i * .09;
+      const p = prog(t, ti, .9);
+      const o = t < ti ? 0 : 1 - prog(t, 9.2, .3);
+      const droop = i === n - 1 ? 0 : Math.sin(t * 2 + i) * 4;
+      return { dy: -(1 - easeOutBounce(p)) * 700 + prog(t, 8.2, 1) * i * 6, r: droop + prog(t, 8.2, 1) * (i - n / 2) * 4, o };
+    }, 1);
+    downItems.forEach(d => {
+      const lt = t - d.t0;
+      if (lt < 0 || t > 9.6) return put(d.el, 0, 0, 0);
+      const p = clamp(lt / 1.1);
+      const y = lerp(-200, d.land, easeOutBounce(p));
+      const out = 1 - prog(t, 9.2, .35);
+      put(d.el, d.x, y, out, d.rot * easeOutCubic(p));
+    });
+    const rs = popScale(t, 6.0, 9.1, .6);
+    put(E.rain, 960 + Math.sin(t * 1.5) * 500, 130 + Math.sin(t * 3) * 15, rs * .9);
+  }
+
+  // ===== S4: wins / worries / coffee (9.5 - 12.5)
+  {
+    // roller coaster rides a wavy track across the top
+    if (t > 9.5 && t < 12.6) {
+      const p = prog(t, 9.5, 3);
+      const x = lerp(-250, W + 250, p);
+      const y = 170 + Math.sin(p * Math.PI * 4) * 90;
+      const slope = Math.cos(p * Math.PI * 4) * 90 * Math.PI * 4 / (W + 500);
+      put(E.coaster, x, y, 1, -Math.atan(slope * 1) * 180 / Math.PI * 1.4);
+    } else put(E.coaster, 0, 0, 0);
+    const xs = [400, 960, 1520];
+    const ct = 11.25; // the coffee punchline
+    TRIO.forEach((_, i) => {
+      const t0 = 9.75 + i * .75;
+      const s = popScale(t, t0, 12.2, .55);
+      const jitter = i === 2 ? Math.sin(t * 40) * 8 : 0; // over-caffeinated
+      put(E['trio' + i], xs[i] + jitter, 560 + Math.sin(t * 4 + i) * 18, s * (i === 2 ? 1.15 : 1), Math.sin(t * 3 + i * 2) * 8 + jitter);
+      if (i < 2) {
+        E['trioT' + i].style.width = '700px';
+        putWord(E['trioT' + i], 830, popLetters(t, t0 + .1, ct - .2, .025, .3), 1, xs[i] - 350);
+      }
+    });
+    putWord(E.trioT2, 850, popLetters(t, ct, 12.2, .02, .5), t >= ct ? 1 : 0);
+  }
+
+  // ===== S5: But right here... right now... breathe (12.5 - 15.5)
+  {
+    const cs = popScale(t, 12.55, 13.9, .5);
+    const ring = t < 13.3 ? Math.sin(t * 60) * 10 : 0;
+    put(E.clock, 960, 360, cs, ring);
+    putWord(E.righthere, 620, popLetters(t, 12.65, 13.9, .03, .2));
+    putWord(E.rightnow, 820, popLetters(t, 13.15, 13.9, .05, .2));
+    // breathe: slow, calm swell
+    const bp = prog(t, 14.0, 1.5);
+    const bo = clamp(prog(t, 14.0, .4)) * (1 - prog(t, 15.3, .25));
+    put(E.exhale, 960, 430, (.8 + easeOutCubic(bp) * .25) * (bo > 0 ? 1 : 0), 0, bo);
+    putWord(E.breathe, 760, (i) => ({ o: clamp(prog(t, 14.2 + i * .07, .4)) * (1 - prog(t, 15.3, .25)), dy: (1 - easeOutCubic(prog(t, 14.2 + i * .07, .6))) * 30 }), bo > 0 ? 1 : 0);
+  }
+
+  // ===== S6: WE GATHER / WE WORSHIP / WE LET GO (15.5 - 20)
+  BEATS.forEach((b, i) => {
+    const t0 = 15.5 + i * 1.5, t1 = t0 + 1.25;
+    let s = popScale(t, t0, t1, .45, .25);
+    let y = 400 + Math.sin(t * 6) * 15;
+    let r = Math.sin(t * 5) * 6;
+    if (i === 2) { // dove floats upward as we let go
+      y -= easeInCubic(prog(t, t0, 1.6)) * 200;
+      s = t < t0 ? 0 : (t > t1 + .3 ? 0 : easeOutBack(prog(t, t0, .45)));
+    }
+    if (i === 1) r = Math.sin(t * 12) * 10; // hands up, bouncing
+    put(E['beatE' + i], 960, y, s * 1.0, r);
+    const slam = 1 + (1 - easeOutCubic(prog(t, t0 + .1, .3))) * 1.2;
+    putWord(E['beatT' + i], 820, (j, n) => ({
+      s: popScale(t, t0 + .1 + j * .015, t1, .35, .2),
+      dy: Math.sin(t * 8 + j * .7) * 6,
+    }), slam);
+  });
+
+  // ===== S7: IT'S TIME FOR CHAPEL (20 - 26)
+  {
+    putWord(E.itstime, 260, popLetters(t, 20.05, 99, .035, .5));
+    const ch = popScale(t, 20.4, 99, .8);
+    put(E.church, 960, 550 + Math.sin(t * 3) * 12 - (1 - easeOutBounce(prog(t, 20.4, .8))) * 600, ch * (1 + Math.sin(t * 6) * .025), Math.sin(t * 2.5) * 4);
+    putWord(E.chapel, 915, (i, n) => {
+      const ti = 21 + i * .09;
+      const s = t < ti ? 0 : easeOutElastic(prog(t, ti, 1.0));
+      const wave = Math.sin((t - 22) * 5 - i * .8) * 22 * prog(t, 21.8, .6);
+      return { s, dy: wave, r: Math.sin(t * 4 + i) * 3 };
+    }, 1 + Math.max(0, Math.sin((t - 21.5) * Math.PI * 2)) * .03 * (t > 21.5 ? 1 : 0));
+    // confetti burst from church
+    conf.forEach(c => {
+      const lt = t - c.t0;
+      if (lt < 0) return put(c.el, 0, 0, 0);
+      const x = 960 + Math.cos(c.a) * c.v * lt * .9;
+      const y = 560 + Math.sin(c.a) * c.v * lt * .9 - 500 * lt + 700 * lt * lt;
+      put(c.el, x, y, Math.min(1, lt * 5), c.rot * lt);
+    });
+    // orbiting emoji after the burst settles
+    orbit.forEach((o, i) => {
+      const s = popScale(t, 22.2 + i * .12, 99, .5);
+      const a = t * .9 + i * Math.PI * 2 / orbit.length;
+      put(o, 960 + Math.cos(a) * 760, 560 + Math.sin(a) * 360, s * (.8 + Math.sin(a) * .2), Math.sin(t * 3 + i) * 15);
+    });
+    flash.style.opacity = t > 21 ? .85 * (1 - prog(t, 21, .35)) : 0;
+  }
+}
+
+// scale stage to window for live preview
+function fit() {
+  const s = Math.min(innerWidth / W, innerHeight / H);
+  document.getElementById('stage').style.transform = `scale(${s})`;
+}
+window.__render = render;
+window.__duration = DURATION;
+const capture = new URLSearchParams(location.search).has('capture');
+if (!capture) {
+  addEventListener('resize', fit); fit();
+  let start = null;
+  const loop = ts => { if (start === null) start = ts; render(((ts - start) / 1000) % DURATION); requestAnimationFrame(loop); };
+  Promise.all([...document.images].map(i => i.decode().catch(() => {}))).then(() => requestAnimationFrame(loop));
+}
+render(0);
+</script>
+</body>
+</html>
