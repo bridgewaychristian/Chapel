@@ -1,0 +1,28 @@
+{
+  "name": "closer-than-you-know",
+  "version": "1.0.0",
+  "private": true,
+  "description": "\"Closer Than You Know\" \u2014 motion graphic fundraising film for The Troy Foundation (Remotion).",
+  "scripts": {
+    "preview": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts CloserThanYouKnow out/closer-than-you-know.mp4",
+    "render:draft": "remotion render src/index.ts CloserThanYouKnow out/closer-than-you-know-draft.mp4 --scale=0.5",
+    "stills": "node scripts/render-stills.mjs",
+    "captions": "node scripts/export-captions.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.539",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "remotion": "4.0.539",
+    "@remotion/bundler": "4.0.539",
+    "@remotion/renderer": "4.0.539"
+  },
+  "devDependencies": {
+    "@fontsource/cormorant-garamond": "5.3.0",
+    "@fontsource/inter": "5.3.0",
+    "@types/react": "19.0.0",
+    "typescript": "5.7.3"
+  }
+}

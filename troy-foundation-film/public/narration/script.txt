@@ -1,0 +1,62 @@
+# "Closer Than You Know" — The Troy Foundation
+# APPROVED VOICEOVER SCRIPT (verbatim). Edit wording here only with approval.
+#
+# Format: <cue id> | <narration text>
+# - Lines starting with # are comments.
+# - Cue ids are referenced by src/config/timing.ts (start/end times) and by
+#   the on-screen typography and caption track. Keep ids stable.
+
+c01 | You might pass them tomorrow.
+
+c02 | At the grocery store.
+c03 | On the sidewalk.
+c04 | Waiting beside you at a stoplight.
+
+c05 | And never know.
+
+c06 | Never know that tonight, a family will sit down to dinner with a little less worry.
+
+c07 | That a child has somewhere safe to go after school.
+
+c08 | That a student is beginning to believe the future holds a place for them.
+
+c09 | You may never see those moments.
+
+c10 | But you can help make them possible.
+
+c11 | When you give to support Troy through The Troy Foundation, your generosity gets to work right here.
+
+c12 | Through local organizations.
+c13 | Through people who know our neighbors.
+c14 | Through opportunities that help this community thrive.
+
+c15 | Together, our gifts become something deeply personal.
+
+c16 | Food on a table.
+c17 | A door that stays open.
+c18 | A chance to begin again.
+
+c19 | And the impact keeps going.
+
+c20 | A child grows in confidence.
+c21 | A family finds its footing.
+c22 | Someone who once needed a hand finds a way to offer one.
+
+c23 | You may never know their name.
+
+c24 | They may never know yours.
+
+c25 | But your lives are connected.
+
+c26 | By a gift.
+c27 | By this place.
+c28 | By the belief that we can care for one another.
+
+c29 | The Troy Foundation.
+
+c30 | Give here.
+c31 | Help change a life here.
+
+c32 | You may never see the moment.
+
+c33 | But someone will live it.
