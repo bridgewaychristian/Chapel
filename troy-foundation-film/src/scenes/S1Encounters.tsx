@@ -23,7 +23,7 @@ export const S1Encounters: React.FC = () => {
         camX={camX}
         t={t}
         ground={prog(t, 0.3, 2.6)}
-        market={prog(t, c01.end - 0.8, c02.start + 0.6)}
+        market={prog(t, c01.end + 0.35, c02.start + 1.0)}
         sidewalk={prog(t, c02.end - 0.6, c03.start + 0.8)}
         stop={prog(t, c03.end - 0.6, c04.start + 1.0)}
         walkers={prog(t, c02.end, c04.end)}

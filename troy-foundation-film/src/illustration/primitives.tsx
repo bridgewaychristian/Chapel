@@ -63,7 +63,7 @@ export const Ink: React.FC<InkProps> = ({
           pathLength={1}
           strokeDasharray={dash ?? (sp < 1 ? '1 1' : undefined)}
           strokeDashoffset={dash ? undefined : 1 - sp}
-          opacity={dash ? sp : 1}
+          opacity={dash ? sp : clamp01(sp * 8)}
         />
       )}
     </g>
@@ -91,7 +91,7 @@ export const Limb: React.FC<{d: string; color: string; w?: number; at?: [number,
     strokeDashoffset: 1 - sp,
   };
   return (
-    <g>
+    <g opacity={clamp01(sp * 8)}>
       <path {...common} stroke={COLORS.line} strokeWidth={w + 5} />
       <path {...common} stroke={color} strokeWidth={w} />
     </g>
