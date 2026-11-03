@@ -1,0 +1,348 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Chapel Countdown</title>
+<style>
+  @font-face { font-family: "Oswald"; font-weight: 700; src: url("fonts/Oswald-Bold.ttf"); }
+  html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+  #stage {
+    position: relative; width: 1920px; height: 1080px; overflow: hidden;
+    background: radial-gradient(ellipse at 50% 45%, #1b1b1d 0%, #0b0b0c 60%, #040404 100%);
+    font-family: "Oswald", sans-serif; font-weight: 700; transform-origin: 0 0;
+  }
+  #board { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; }
+  #vignette {
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 55%, rgba(0,0,0,.55) 100%);
+  }
+
+  /* ---------- split-flap tile ---------- */
+  .tile { position: absolute; perspective: 900px; }
+  .tile.big { perspective: 2600px; }
+  .half {
+    position: absolute; left: 0; right: 0; height: 50%; overflow: hidden;
+    backface-visibility: hidden; color: #f1f1ee;
+  }
+  .half.top {
+    top: 0; border-radius: 6px 6px 0 0;
+    background: linear-gradient(#2c2c2f, #232326);
+  }
+  .half.bot {
+    bottom: 0; border-radius: 0 0 6px 6px;
+    background: linear-gradient(#1f1f22, #19191b);
+  }
+  .big .half.top { border-radius: 14px 14px 0 0; }
+  .big .half.bot { border-radius: 0 0 14px 14px; }
+  .ch {
+    position: absolute; left: 0; right: 0; height: 200%;
+    display: flex; align-items: center; justify-content: center;
+    line-height: 1; white-space: pre;
+  }
+  .ch > span { display: block; transform: translateY(-0.06em); }
+  .dot { position: absolute; left: 50%; width: 46px; height: 46px; margin-left: -23px; border-radius: 6px; background: #f1f1ee; }
+  .top .ch { top: 0; }
+  .bot .ch { top: -100%; }
+  .flap { visibility: hidden; will-change: transform; }
+  .flap.top { transform-origin: 50% 100%; }
+  .flap.bot { transform-origin: 50% 0%; }
+  .shade { position: absolute; inset: 0; background: #000; opacity: 0; }
+  /* hinge gap + side pins */
+  .hinge {
+    position: absolute; left: 0; right: 0; top: 50%; height: 3px; margin-top: -1.5px;
+    background: #050505; z-index: 3;
+  }
+  .big .hinge { height: 6px; margin-top: -3px; }
+  .pin {
+    position: absolute; top: 50%; width: 4px; height: 12px; margin-top: -6px;
+    background: #5b5b5f; border-radius: 1px; z-index: 4;
+  }
+  .big .pin { width: 9px; height: 34px; margin-top: -17px; }
+  .pin.l { left: -2px; } .pin.r { right: -2px; }
+  .big .pin.l { left: -4px; } .big .pin.r { right: -4px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="board"></div>
+  <div id="vignette"></div>
+</div>
+<script>
+// =====================================================================
+//  Bridgeway Chapel — 5:00 split-flap countdown
+//  Deterministic: window.__render(t) draws the frame at time t (seconds).
+//  Open without ?capture to run it live in a browser (click to restart).
+// =====================================================================
+const W = 1920, H = 1080;
+const COUNT = 300;                 // 5 minutes
+const DURATION = 316;              // countdown + finale + hold
+const COLS = 20, ROWS = 10;
+const TW = 84, TH = 94, GX = 8, GY = 10;
+const PX = TW + GX, PY = TH + GY;
+const MX = (W - (COLS * PX - GX)) / 2, MY = (H - (ROWS * PY - GY)) / 2;
+
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const easeInOut = p => p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+const easeOut = p => 1 - Math.pow(1 - p, 3);
+
+// seeded RNG so every render is identical
+let seed = 20261103;
+const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+const GLYPHS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+const rndGlyph = () => GLYPHS[Math.floor(rnd() * GLYPHS.length)];
+
+const board = document.getElementById('board');
+const tiles = [];   // every tile: {el, parts, events[], init, ...}
+window.__flaps = [];  // [time, size] of every flap — used for the soundtrack
+
+function makeTile(x, y, w, h, fontPx, big) {
+  const el = document.createElement('div');
+  el.className = 'tile' + (big ? ' big' : '');
+  Object.assign(el.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' });
+  const part = cls => {
+    const d = document.createElement('div'); d.className = 'half ' + cls;
+    const c = document.createElement('div'); c.className = 'ch'; c.style.fontSize = fontPx + 'px';
+    const s = document.createElement('div'); s.className = 'shade';
+    d.append(c, s); el.appendChild(d); return { d, c, s, txt: null };
+  };
+  const parts = { top: part('top'), bot: part('bot'), ft: part('top flap'), fb: part('bot flap') };
+  const hinge = document.createElement('div'); hinge.className = 'hinge';
+  const pl = document.createElement('div'); pl.className = 'pin l';
+  const pr = document.createElement('div'); pr.className = 'pin r';
+  el.append(hinge, pl, pr);
+  board.appendChild(el);
+  const t = { el, parts, events: [], init: ' ', big, fade: null, visible: true, _op: null };
+  tiles.push(t);
+  return t;
+}
+const cellX = c => MX + c * PX, cellY = r => MY + r * PY;
+
+// ---------- small tile grid ----------
+const grid = [];
+for (let r = 0; r < ROWS; r++) {
+  grid[r] = [];
+  for (let c = 0; c < COLS; c++) grid[r][c] = makeTile(cellX(c), cellY(r), TW, TH, 74, false);
+}
+
+// decorative blank tiles beyond the frame, so zoomed shots never see an edge
+for (let r = -3; r < ROWS + 3; r++) for (let c = -4; c < COLS + 4; c++)
+  if (r < 0 || r >= ROWS || c < 0 || c >= COLS) makeTile(cellX(c), cellY(r), TW, TH, 74, false).decor = true;
+
+// ---------- big countdown tiles (span the grid exactly) ----------
+const BIG_R0 = 3, BIG_ROWS = 6;
+function bigTile(c0, span, fontPx) {
+  const w = span * PX - GX, h = BIG_ROWS * PY - GY;
+  const t = makeTile(cellX(c0), cellY(BIG_R0), w, h, fontPx, true);
+  t.cx = cellX(c0) + w / 2; t.cy = cellY(BIG_R0) + h / 2; t.w = w; t.h = h;
+  t.c0 = c0; t.span = span;
+  return t;
+}
+const BIGFONT = 540;
+const tMin = bigTile(2, 4, BIGFONT);
+const tColon = bigTile(7, 1, 300);
+const tTen = bigTile(9, 4, BIGFONT);
+const tOne = bigTile(14, 4, BIGFONT);
+const bigs = [tMin, tColon, tTen, tOne];
+// small tiles under big tiles stay hidden until the finale
+const covered = [];
+for (const b of bigs) for (let r = BIG_R0; r < BIG_R0 + BIG_ROWS; r++)
+  for (let c = b.c0; c < b.c0 + b.span; c++) covered.push(grid[r][c]);
+
+// ---------- text helpers ----------
+function setRow(r, text, at) {         // initial text centred in row r
+  const c0 = Math.floor((COLS - text.length) / 2);
+  for (let i = 0; i < text.length; i++) grid[r][c0 + i].init = text[i];
+}
+setRow(1, 'CHAPEL STARTS IN');
+
+// event: flap from 'from' to 'to' starting at t, taking d seconds
+function flap(tile, t, to, d) {
+  const ev = tile.events;
+  const from = ev.length ? ev[ev.length - 1].to : tile.init;
+  if (from === to) return;
+  ev.push({ t, d, from, to });
+  window.__flaps.push([t, tile.big ? 1 : 0]);
+}
+
+// ---------- countdown schedule ----------
+const fmt = s => {
+  const m = Math.floor(s / 60), sec = s % 60;
+  return [String(m), Math.floor(sec / 10), sec % 10];
+};
+function showValue(s, t) {
+  const [m, ten, one] = fmt(s);
+  const tenCh = s < 10 ? ' ' : String(ten);
+  if (t === null) { tMin.init = m; tColon.init = ':'; tTen.init = tenCh; tOne.init = String(one); return; }
+  flap(tMin, t, m, 0.2); flap(tTen, t, tenCh, 0.2); flap(tOne, t, String(one), 0.2);
+}
+showValue(COUNT, null);
+for (let k = 1; k <= COUNT; k++) showValue(COUNT - k, k);
+
+// ---------- finale: scramble -> WELCOME TO BRIDGEWAY CHAPEL ----------
+const T_ZERO = COUNT;               // 0 lands
+const T_OUT0 = T_ZERO + 1.0, T_OUT1 = T_ZERO + 2.4;   // zoom back out
+const T_SCR = T_ZERO + 2.0;          // scramble begins
+const FINAL = {};
+function finalRow(r, text) {
+  const c0 = Math.floor((COLS - text.length) / 2);
+  for (let i = 0; i < text.length; i++) FINAL[r + ',' + (c0 + i)] = text[i];
+}
+finalRow(3, 'WELCOME TO');
+finalRow(5, 'BRIDGEWAY CHAPEL');
+
+// big tiles: rapid shuffle, then flip blank and dissolve into the grid
+for (const b of bigs) {
+  let t = T_SCR + rnd() * 0.15;
+  const n = 7 + Math.floor(rnd() * 3);
+  for (let i = 0; i < n; i++) { flap(b, t, rndGlyph(), 0.11); t += 0.11; }
+  flap(b, t, ' ', 0.11);
+  b.fade = [t + 0.05, t + 0.45];
+}
+// small tiles: every tile shuffles, settles in a left-to-right wave;
+// message letters land last, one after another
+let msgIdx = 0;
+for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+  const tile = grid[r][c];
+  const target = FINAL[r + ',' + c] || ' ';
+  const isCovered = covered.includes(tile);
+  let t = T_SCR + (isCovered ? 0.6 : 0) + c * 0.035 + rnd() * 0.25;
+  const d = 0.075;
+  let end;
+  if (target !== ' ') {
+    end = T_ZERO + 4.2 + (r === 3 ? 0 : 0.6) + (c - 2) * 0.09 + rnd() * 0.05;
+  } else {
+    end = T_ZERO + 3.0 + c * 0.05 + rnd() * 0.5;
+  }
+  while (t < end) { flap(tile, t, rndGlyph(), d); t += d * (1 + rnd() * 0.25); }
+  flap(tile, t, target, d);
+}
+window.__flaps.sort((a, b) => a[0] - b[0]);
+
+// ---------- camera ----------
+const full = { x: W / 2, y: H / 2, s: 1 };
+const seconds = { x: (tTen.cx + tOne.cx) / 2, y: tOne.cy, s: 1.55 };
+const ones = { x: tOne.cx, y: tOne.cy, s: 1.68 };
+const T_IN0 = COUNT - 10 - 0.9, T_IN1 = COUNT - 10 - 0.05;   // arrive as "10" lands
+const T_PAN0 = COUNT - 9 - 0.25, T_PAN1 = COUNT - 9 + 0.45;  // slide onto the single digit
+function mix(a, b, p) { return { x: lerp(a.x, b.x, p), y: lerp(a.y, b.y, p), s: lerp(a.s, b.s, p) }; }
+function camera(t) {
+  if (t < T_IN0) return full;
+  if (t < T_IN1) return mix(full, seconds, easeInOut(prog(t, T_IN0, T_IN1)));
+  if (t < T_PAN0) return seconds;
+  if (t < T_PAN1) return mix(seconds, ones, easeInOut(prog(t, T_PAN0, T_PAN1)));
+  if (t < T_OUT0) {
+    // gentle push on the last seconds, plus a little "thump" each tick
+    const p = clamp((t - T_PAN1) / (T_OUT0 - T_PAN1));
+    const tick = Math.exp(-(t % 1) * 9) * 0.012;
+    return { x: ones.x, y: ones.y, s: ones.s * (1 + 0.05 * p) * (1 + tick) };
+  }
+  if (t < T_OUT1) {
+    const z = camera(T_OUT0 - 1e-6);
+    return mix(z, full, easeInOut(prog(t, T_OUT0, T_OUT1)));
+  }
+  // slow drift on the welcome hold
+  const p = clamp((t - T_OUT1) / (DURATION - T_OUT1));
+  return { x: W / 2, y: H / 2, s: 1 + 0.035 * easeOut(p) };
+}
+function prog(t, a, b) { return clamp((t - a) / (b - a)); }
+
+// ---------- drawing ----------
+let dirty = true, lastCam = '';
+function setTxt(part, ch) {
+  if (part.txt === ch) return;
+  part.txt = ch; dirty = true;
+  if (ch === ':') {
+    // colon drawn as two square dots, clear of the hinge
+    part.c.innerHTML = '<div class="dot" style="top:31%"></div><div class="dot" style="top:63%"></div>';
+  } else part.c.innerHTML = '<span>' + (ch === ' ' ? '&nbsp;' : ch) + '</span>';
+}
+function setVis(part, v) { const s = v ? 'visible' : 'hidden'; if (part.vis !== s) { part.d.style.visibility = s; part.vis = s; dirty = true; } }
+
+function drawTile(tile, t) {
+  // find the latest event that has started
+  const ev = tile.events;
+  let lo = 0, hi = ev.length - 1, idx = -1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (ev[m].t <= t) { idx = m; lo = m + 1; } else hi = m - 1; }
+  const P = tile.parts;
+  if (idx < 0 || t >= ev[idx].t + ev[idx].d) {
+    const ch = idx < 0 ? tile.init : ev[idx].to;
+    setTxt(P.top, ch); setTxt(P.bot, ch);
+    setVis(P.ft, false); setVis(P.fb, false);
+    return;
+  }
+  const e = ev[idx], p = (t - e.t) / e.d;
+  dirty = true;
+  setTxt(P.top, e.to);          // new top revealed behind the falling flap
+  setTxt(P.bot, e.from);        // old bottom until the new flap covers it
+  if (p < 0.5) {
+    const q = p / 0.5;
+    setTxt(P.ft, e.from); setVis(P.ft, true); setVis(P.fb, false);
+    P.ft.d.style.transform = `rotateX(${-90 * q * q}deg)`;
+    P.ft.s.style.opacity = (0.55 * q).toFixed(3);
+    P.top.s.style.opacity = (0.45 * (1 - q)).toFixed(3);
+    P.bot.s.style.opacity = '0';
+  } else {
+    const q = (p - 0.5) / 0.5;
+    setTxt(P.fb, e.to); setVis(P.fb, true); setVis(P.ft, false);
+    P.fb.d.style.transform = `rotateX(${90 * (1 - q) * (1 - q)}deg)`;
+    P.fb.s.style.opacity = (0.5 * (1 - q)).toFixed(3);
+    P.top.s.style.opacity = '0';
+    P.bot.s.style.opacity = (0.35 * q * (1 - q) * 4 * 0.5).toFixed(3);
+  }
+}
+function resetShades(tile) {
+  const P = tile.parts;
+  if (P.top.s.style.opacity !== '0') { P.top.s.style.opacity = '0'; dirty = true; }
+  if (P.bot.s.style.opacity !== '0') { P.bot.s.style.opacity = '0'; dirty = true; }
+}
+
+function setOpacity(tile, o) {
+  const v = o.toFixed(3);
+  if (tile._op !== v) { tile.el.style.opacity = v; tile._op = v; dirty = true; }
+  const vis = o > 0.001;
+  if (tile.visible !== vis) { tile.el.style.display = vis ? '' : 'none'; tile.visible = vis; }
+}
+
+window.__render = function (t) {
+  // big tiles fade out during the finale; covered small tiles fade in
+  for (const b of bigs) {
+    const o = b.fade ? 1 - clamp((t - b.fade[0]) / (b.fade[1] - b.fade[0])) : 1;
+    setOpacity(b, o);
+  }
+  const reveal = clamp((t - (T_SCR + 0.35)) / 0.5);
+  for (const tile of covered) setOpacity(tile, reveal);
+
+  for (const tile of tiles) {
+    if (!tile.visible || (tile.decor && tile.drawn)) continue;
+    tile.drawn = true;
+    resetShades(tile);
+    drawTile(tile, t);
+  }
+  const cam = camera(t);
+  const tf = `translate(${W / 2}px, ${H / 2}px) scale(${cam.s.toFixed(5)}) translate(${(-cam.x).toFixed(2)}px, ${(-cam.y).toFixed(2)}px)`;
+  if (tf !== lastCam) { board.style.transform = tf; lastCam = tf; dirty = true; }
+  const changed = dirty; dirty = false;
+  return changed;   // false => frame identical to the previous one
+};
+window.__duration = DURATION;
+
+// ---------- live mode ----------
+function fit() {
+  const s = Math.min(innerWidth / W, innerHeight / H);
+  const st = document.getElementById('stage');
+  st.style.transform = `translate(${(innerWidth - W * s) / 2}px, ${(innerHeight - H * s) / 2}px) scale(${s})`;
+}
+if (!location.search.includes('capture')) {
+  fit(); addEventListener('resize', fit);
+  const startAt = parseFloat(new URLSearchParams(location.search).get('t') || '0');
+  let t0 = performance.now() - startAt * 1000;
+  addEventListener('click', () => { t0 = performance.now(); });
+  const loop = now => { window.__render(Math.min((now - t0) / 1000, DURATION)); requestAnimationFrame(loop); };
+  document.fonts.ready.then(() => requestAnimationFrame(loop));
+} else {
+  window.__render(0);
+}
+</script>
+</body>
+</html>

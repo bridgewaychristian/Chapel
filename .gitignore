@@ -3,3 +3,6 @@ render.log
 chapel-intro-silent.mp4
 soundtrack.wav
 node_modules/
+countdown/frames/
+countdown/test.mp4
+countdown/flaps.json
