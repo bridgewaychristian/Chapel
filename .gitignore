@@ -5,4 +5,4 @@ soundtrack.wav
 node_modules/
 countdown/frames/
 countdown/test.mp4
-countdown/flaps.json
+countdown/flaps*.json

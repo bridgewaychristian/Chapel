@@ -1,0 +1,325 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Chapel Countdown LED Wall</title>
+<style>
+  @font-face { font-family: "Oswald"; font-weight: 700; src: url("fonts/Oswald-Bold.ttf"); }
+  html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+  #stage {
+    position: relative; overflow: hidden; background: #000;
+    font-family: "Oswald", sans-serif; font-weight: 700; transform-origin: 0 0;
+  }
+  .panel {
+    position: absolute; overflow: hidden;
+    background: radial-gradient(ellipse at 50% 40%, #19191b 0%, #0b0b0c 70%, #050505 100%);
+  }
+  .board { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+
+  /* ---------- split-flap tile (sizes set per tile from JS) ---------- */
+  .tile { position: absolute; }
+  .half {
+    position: absolute; left: 0; right: 0; height: 50%; overflow: hidden;
+    backface-visibility: hidden; color: #f1f1ee;
+  }
+  .half.top { top: 0; background: linear-gradient(#2c2c2f, #232326); }
+  .half.bot { bottom: 0; background: linear-gradient(#1f1f22, #19191b); }
+  .ch {
+    position: absolute; left: 0; right: 0; height: 200%;
+    display: flex; align-items: center; justify-content: center;
+    line-height: 1; white-space: pre;
+  }
+  .ch > span { display: block; transform: translateY(-0.06em); }
+  .dot { position: absolute; left: 50%; background: #f1f1ee; }
+  .top .ch { top: 0; }
+  .bot .ch { top: -100%; }
+  .flap { visibility: hidden; will-change: transform; }
+  .flap.top { transform-origin: 50% 100%; }
+  .flap.bot { transform-origin: 50% 0%; }
+  .shade { position: absolute; inset: 0; background: #000; opacity: 0; }
+  .hinge { position: absolute; left: 0; right: 0; top: 50%; background: #050505; z-index: 3; }
+  .pin { position: absolute; top: 50%; background: #5b5b5f; border-radius: 1px; z-index: 4; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+// =====================================================================
+//  Bridgeway Chapel — 5:00 split-flap countdown, mapped to the LED wall
+//  Wall canvas 2000 x 563. Safe (green) areas:
+//    left  L: 0-450 x 0-200  +  0-100 x 200-450
+//    middle : 550-1450 x 0-200
+//    right L: 1550-2000 x 0-200  +  1900-2000 x 200-450
+//  Everything outside those areas stays pure black.
+//  Deterministic: window.__render(t) draws the frame at time t (seconds).
+//  Open without ?capture to run it live in a browser (click to restart).
+// =====================================================================
+const W = 2000, H = 563;
+const COUNT = 300;                 // 5 minutes
+const DURATION = 316;              // countdown + finale + hold
+const PX = 25, PY = 50, GAP = 4;   // grid pitch — divides every safe-area edge exactly
+
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const easeInOut = p => p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+const easeOut = p => 1 - Math.pow(1 - p, 3);
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+
+let seed = 20261118;
+const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+const GLYPHS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+const rndGlyph = () => GLYPHS[Math.floor(rnd() * GLYPHS.length)];
+
+const stage = document.getElementById('stage');
+stage.style.width = W + 'px'; stage.style.height = H + 'px';
+
+// ---------- panels ----------
+// cells: list of [col, row] occupied by small tiles; poly: clip outline (panel-local)
+function makePanel(name, x, y, w, h, poly) {
+  const el = document.createElement('div'); el.className = 'panel';
+  Object.assign(el.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' });
+  if (poly) el.style.clipPath = `polygon(${poly.map(p => p[0] + 'px ' + p[1] + 'px').join(',')})`;
+  const board = document.createElement('div'); board.className = 'board';
+  Object.assign(board.style, { width: w + 'px', height: h + 'px' });
+  el.appendChild(board); stage.appendChild(el);
+  return { name, x, y, w, h, el, board, grid: {} };
+}
+const left = makePanel('left', 0, 0, 450, 450, [[0, 0], [450, 0], [450, 200], [100, 200], [100, 450], [0, 450]]);
+const mid = makePanel('mid', 550, 0, 900, 200);
+const right = makePanel('right', 1550, 0, 450, 450, [[0, 0], [450, 0], [450, 450], [350, 450], [350, 200], [0, 200]]);
+const panels = [left, mid, right];
+
+const tiles = [];
+window.__flaps = [];
+
+function makeTile(panel, x, y, w, h, fontPx) {
+  const el = document.createElement('div'); el.className = 'tile';
+  Object.assign(el.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px', perspective: (h * 6) + 'px' });
+  const rad = Math.max(2, Math.round(h * 0.035));
+  const part = cls => {
+    const d = document.createElement('div'); d.className = 'half ' + cls;
+    d.style.borderRadius = cls.includes('top') ? `${rad}px ${rad}px 0 0` : `0 0 ${rad}px ${rad}px`;
+    const c = document.createElement('div'); c.className = 'ch'; c.style.fontSize = fontPx + 'px';
+    const s = document.createElement('div'); s.className = 'shade';
+    d.append(c, s); el.appendChild(d); return { d, c, s, txt: null };
+  };
+  const parts = { top: part('top'), bot: part('bot'), ft: part('top flap'), fb: part('bot flap') };
+  const hg = Math.max(1, Math.round(h * 0.022));
+  const hinge = document.createElement('div'); hinge.className = 'hinge';
+  Object.assign(hinge.style, { height: hg + 'px', marginTop: (-hg / 2) + 'px' });
+  el.appendChild(hinge);
+  const pw = Math.max(1.5, h * 0.03), ph = Math.max(5, h * 0.12);
+  for (const side of ['left', 'right']) {
+    const p = document.createElement('div'); p.className = 'pin';
+    Object.assign(p.style, { width: pw + 'px', height: ph + 'px', marginTop: (-ph / 2) + 'px', [side]: (-pw / 2) + 'px' });
+    el.appendChild(p);
+  }
+  panel.board.appendChild(el);
+  const t = { el, parts, events: [], init: ' ', w, h, panel, fontPx,
+              x, y, cx: x + w / 2, cy: y + h / 2, opacity: () => 1, covers: [], _op: null, visible: true };
+  tiles.push(t);
+  return t;
+}
+const cx = c => c * PX + GAP / 2, cy = r => r * PY + GAP / 2;
+function smallTile(panel, c, r) {
+  const t = makeTile(panel, cx(c), cy(r), PX - GAP, PY - GAP, 36);
+  t.kind = 'small'; t.c = c; t.r = r; panel.grid[c + ',' + r] = t;
+  return t;
+}
+// a tile spanning a block of grid cells; hides the small tiles beneath it
+function blockTile(panel, c0, r0, cs, rs, fontPx) {
+  const t = makeTile(panel, cx(c0), cy(r0), cs * PX - GAP, rs * PY - GAP, fontPx);
+  t.kind = 'block'; t.c0 = c0; t.r0 = r0; t.cs = cs; t.rs = rs;
+  for (let r = r0; r < r0 + rs; r++) for (let c = c0; c < c0 + cs; c++) {
+    const s = panel.grid[c + ',' + r]; if (s) s.covers.push(t);
+  }
+  return t;
+}
+
+// ---------- small tile grids, exactly filling each safe area ----------
+for (let r = 0; r < 4; r++) for (let c = 0; c < 18; c++) smallTile(left, c, r);   // left top
+for (let r = 4; r < 9; r++) for (let c = 0; c < 4; c++) smallTile(left, c, r);    // left leg
+for (let r = 0; r < 4; r++) for (let c = 0; c < 36; c++) smallTile(mid, c, r);    // middle
+for (let r = 0; r < 4; r++) for (let c = 0; c < 18; c++) smallTile(right, c, r);  // right top
+for (let r = 4; r < 9; r++) for (let c = 14; c < 18; c++) smallTile(right, c, r); // right leg
+
+// ---------- countdown (middle panel, centred) ----------
+function setRow(panel, r, c0, text) { for (let i = 0; i < text.length; i++) panel.grid[(c0 + i) + ',' + r].init = text[i]; }
+setRow(mid, 0, 10, 'CHAPEL STARTS IN');                   // cols 10-25 (centred in 36)
+
+const BIGF = 128;
+const tMin = blockTile(mid, 10, 1, 4, 3, BIGF);            // cols 10-13
+const tColon = blockTile(mid, 15, 1, 1, 3, 60);            // col 15
+const tTen = blockTile(mid, 17, 1, 4, 3, BIGF);            // cols 17-20
+const tOne = blockTile(mid, 22, 1, 4, 3, BIGF);            // cols 22-25
+const bigs = [tMin, tColon, tTen, tOne];
+
+function flap(tile, t, to, d) {
+  const ev = tile.events;
+  const from = ev.length ? ev[ev.length - 1].to : tile.init;
+  if (from === to) return;
+  ev.push({ t, d, from, to });
+  window.__flaps.push([t, tile.kind === 'small' ? 0 : tile.kind === 'msg' ? 2 : 1, (tile.panel.x + tile.cx) / W]);
+}
+
+function showValue(s, t) {
+  const m = String(Math.floor(s / 60)), sec = s % 60;
+  const ten = s < 10 ? ' ' : String(Math.floor(sec / 10)), one = String(sec % 10);
+  if (t === null) { tMin.init = m; tColon.init = ':'; tTen.init = ten; tOne.init = one; return; }
+  flap(tMin, t, m, 0.2); flap(tTen, t, ten, 0.2); flap(tOne, t, one, 0.2);
+}
+showValue(COUNT, null);
+for (let k = 1; k <= COUNT; k++) showValue(COUNT - k, k);
+
+// ---------- finale: whole wall scrambles -> WELCOME | TO BRIDGEWAY | CHAPEL ----------
+const T_ZERO = COUNT;
+const T_OUT0 = T_ZERO + 1.0, T_OUT1 = T_ZERO + 2.4;
+const T_SCR = T_ZERO + 2.0;
+const wallX = tile => (tile.panel.x + tile.cx) / W;   // 0..1 across the wall
+
+// big countdown tiles shuffle, flip blank, dissolve into the grid
+for (const b of bigs) {
+  let t = T_SCR + rnd() * 0.15;
+  const n = 7 + Math.floor(rnd() * 3);
+  for (let i = 0; i < n; i++) { flap(b, t, rndGlyph(), 0.11); t += 0.11; }
+  flap(b, t, ' ', 0.11);
+  const f0 = t + 0.05, f1 = t + 0.45;
+  b.opacity = tt => 1 - prog(tt, f0, f1);
+}
+
+// message letters on double-size tiles (2 cols x 2 rows), rows 1-2 of each panel
+const T_MSG_IN0 = T_SCR + 0.9, T_MSG_IN1 = T_SCR + 1.3;
+const msgTiles = [];
+function message(panel, c0, text) {
+  for (let i = 0; i < text.length; i++) {
+    const t = blockTile(panel, c0 + i * 2, 1, 2, 2, 80);
+    t.target = text[i]; t.kind = 'msg';
+    t.opacity = tt => prog(tt, T_MSG_IN0, T_MSG_IN1);
+    msgTiles.push(t);
+  }
+}
+message(left, 2, 'WELCOME');          // 7 x 2 = 14 cols, centred in 18
+message(mid, 6, 'TO BRIDGEWAY');      // 12 x 2 = 24 cols, centred in 36
+message(right, 3, 'CHAPEL');          // 6 x 2 = 12 cols, centred in 18
+
+// every small tile on the wall shuffles, then settles in a left-to-right wave
+for (const tile of tiles.filter(t => t.kind === 'small')) {
+  const x = wallX(tile);
+  let t = T_SCR + x * 0.5 + rnd() * 0.25;
+  const end = T_ZERO + 3.0 + x * 1.3 + rnd() * 0.5;
+  while (t < end) { flap(tile, t, rndGlyph(), 0.075); t += 0.075 * (1 + rnd() * 0.25); }
+  flap(tile, t, ' ', 0.075);
+}
+// message tiles: already shuffling as they fade in; letters land left to right
+msgTiles.forEach((tile, i) => {
+  let t = T_MSG_IN0 - 0.3 + rnd() * 0.1;
+  const end = T_ZERO + 3.9 + i * 0.09 + rnd() * 0.04;
+  while (t < end) { flap(tile, t, rndGlyph(), 0.09); t += 0.09; }
+  flap(tile, t, tile.target, 0.09);
+});
+window.__flaps.sort((a, b) => a[0] - b[0]);
+window.__msgLand = T_ZERO + 3.9;
+
+// ---------- camera (middle panel only) ----------
+const full = { x: mid.w / 2, y: mid.h / 2, s: 1 };
+const seconds = { x: (tTen.cx + tOne.cx) / 2, y: tOne.cy, s: 1.45 };
+const ones = { x: tOne.cx, y: tOne.cy, s: 1.6 };
+const T_IN0 = COUNT - 10 - 0.9, T_IN1 = COUNT - 10 - 0.05;
+const T_PAN0 = COUNT - 9 - 0.25, T_PAN1 = COUNT - 9 + 0.45;
+const mix = (a, b, p) => ({ x: lerp(a.x, b.x, p), y: lerp(a.y, b.y, p), s: lerp(a.s, b.s, p) });
+function camera(t) {
+  if (t < T_IN0) return full;
+  if (t < T_IN1) return mix(full, seconds, easeInOut(prog(t, T_IN0, T_IN1)));
+  if (t < T_PAN0) return seconds;
+  if (t < T_PAN1) return mix(seconds, ones, easeInOut(prog(t, T_PAN0, T_PAN1)));
+  if (t < T_OUT0) {
+    const p = prog(t, T_PAN1, T_OUT0);
+    const tick = Math.exp(-(t % 1) * 9) * 0.012;
+    return { x: ones.x, y: ones.y, s: ones.s * (1 + 0.04 * p) * (1 + tick) };
+  }
+  if (t < T_OUT1) return mix(camera(T_OUT0 - 1e-6), full, easeInOut(prog(t, T_OUT0, T_OUT1)));
+  return full;
+}
+
+// ---------- drawing ----------
+let dirty = true;
+function setTxt(part, ch, tile) {
+  if (part.txt === ch) return;
+  part.txt = ch; dirty = true;
+  if (ch === ':') {
+    const s = Math.round(tile.w * 0.62), r = Math.max(1, Math.round(s * 0.15));
+    const dot = top => `<div class="dot" style="top:${top}%;width:${s}px;height:${s}px;margin-left:${-s / 2}px;border-radius:${r}px"></div>`;
+    part.c.innerHTML = dot(30) + dot(62);
+  } else part.c.innerHTML = '<span>' + (ch === ' ' ? '&nbsp;' : ch) + '</span>';
+}
+function setVis(part, v) { const s = v ? 'visible' : 'hidden'; if (part.vis !== s) { part.d.style.visibility = s; part.vis = s; dirty = true; } }
+function setOp(el, v) { if (el._o !== v) { el.style.opacity = v; el._o = v; dirty = true; } }
+
+function drawTile(tile, t) {
+  const ev = tile.events, P = tile.parts;
+  let lo = 0, hi = ev.length - 1, idx = -1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (ev[m].t <= t) { idx = m; lo = m + 1; } else hi = m - 1; }
+  if (idx < 0 || t >= ev[idx].t + ev[idx].d) {
+    const ch = idx < 0 ? tile.init : ev[idx].to;
+    setTxt(P.top, ch, tile); setTxt(P.bot, ch, tile);
+    setVis(P.ft, false); setVis(P.fb, false);
+    setOp(P.top.s, '0'); setOp(P.bot.s, '0');
+    return;
+  }
+  const e = ev[idx], p = (t - e.t) / e.d;
+  dirty = true;
+  setTxt(P.top, e.to, tile); setTxt(P.bot, e.from, tile);
+  if (p < 0.5) {
+    const q = p / 0.5;
+    setTxt(P.ft, e.from, tile); setVis(P.ft, true); setVis(P.fb, false);
+    P.ft.d.style.transform = `rotateX(${-90 * q * q}deg)`;
+    setOp(P.ft.s, (0.55 * q).toFixed(3));
+    setOp(P.top.s, (0.45 * (1 - q)).toFixed(3)); setOp(P.bot.s, '0');
+  } else {
+    const q = (p - 0.5) / 0.5;
+    setTxt(P.fb, e.to, tile); setVis(P.fb, true); setVis(P.ft, false);
+    P.fb.d.style.transform = `rotateX(${90 * (1 - q) * (1 - q)}deg)`;
+    setOp(P.fb.s, (0.5 * (1 - q)).toFixed(3));
+    setOp(P.top.s, '0'); setOp(P.bot.s, (0.35 * q * (1 - q) * 2).toFixed(3));
+  }
+}
+
+let lastCam = '';
+window.__render = function (t) {
+  for (const tile of tiles) {
+    // a small tile shows through only where the tiles covering it are transparent
+    let o = tile.opacity(t);
+    for (const c of tile.covers) o *= 1 - c.opacity(t);
+    const v = o.toFixed(3);
+    if (tile._op !== v) { tile.el.style.opacity = v; tile._op = v; dirty = true; }
+    const vis = o > 0.001;
+    if (tile.visible !== vis) { tile.el.style.display = vis ? '' : 'none'; tile.visible = vis; dirty = true; }
+    if (vis) drawTile(tile, t);
+  }
+  const cam = camera(t);
+  const tf = `translate(${mid.w / 2}px, ${mid.h / 2}px) scale(${cam.s.toFixed(5)}) translate(${(-cam.x).toFixed(2)}px, ${(-cam.y).toFixed(2)}px)`;
+  if (tf !== lastCam) { mid.board.style.transform = tf; lastCam = tf; dirty = true; }
+  const changed = dirty; dirty = false;
+  return changed;   // false => frame identical to the previous one
+};
+window.__duration = DURATION;
+window.__size = [W, H];
+
+// ---------- live mode ----------
+function fit() {
+  const s = Math.min(innerWidth / W, innerHeight / H);
+  stage.style.transform = `translate(${(innerWidth - W * s) / 2}px, ${(innerHeight - H * s) / 2}px) scale(${s})`;
+}
+if (!location.search.includes('capture')) {
+  fit(); addEventListener('resize', fit);
+  const startAt = parseFloat(new URLSearchParams(location.search).get('t') || '0');
+  let t0 = performance.now() - startAt * 1000;
+  addEventListener('click', () => { t0 = performance.now(); });
+  const loop = now => { window.__render(Math.min((now - t0) / 1000, DURATION)); requestAnimationFrame(loop); };
+  document.fonts.ready.then(() => requestAnimationFrame(loop));
+} else {
+  window.__render(0);
+}
+</script>
+</body>
+</html>

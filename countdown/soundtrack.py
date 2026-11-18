@@ -1,15 +1,19 @@
-"""Synthesizes the split-flap clatter for flipboard.html and writes soundtrack.wav.
+"""Synthesizes the split-flap clatter for a countdown page and writes a WAV.
 
-Reads flaps.json (dumped with `node render.js --flaps`): one click per flap,
+Usage: python3 soundtrack.py [flaps.json] [out.wav]
+Reads the flap list dumped with `node render.js --flaps [--page ...]`: one click per flap,
 a deeper thunk for the big countdown tiles, and a soft chord when the
 WELCOME TO BRIDGEWAY CHAPEL message lands.
 """
 import json
+import sys
 import wave
 import numpy as np
 
 SR = 44100
-data = json.load(open('flaps.json'))
+IN = sys.argv[1] if len(sys.argv) > 1 else 'flaps-flipboard.json'
+OUT = sys.argv[2] if len(sys.argv) > 2 else 'soundtrack.wav'
+data = json.load(open(IN))
 DUR = data['duration']
 N = int(SR * DUR)
 out = np.zeros(N)
@@ -34,8 +38,11 @@ def click(length, decay, tone, bright):
     return (noise + body) * np.exp(-t / decay)
 
 
-for t, big in data['flaps']:
-    if big:
+for t, big, *_ in data['flaps']:
+    if big == 2:
+        # mid-size message tiles
+        add(t + rng.uniform(0, 0.02), click(0.03, 0.007, rng.uniform(500, 900), 0.6), 0.12)
+    elif big:
         # big flap: release click, then the leaf slapping down
         add(t, click(0.03, 0.006, 900, 0.7), 0.25)
         add(t + 0.1, click(0.08, 0.018, 160 + rng.uniform(-10, 10), 0.3), 0.7)
@@ -55,7 +62,7 @@ for i, f in enumerate([146.83, 220.0, 293.66, 369.99, 440.0, 659.25]):
 peak = np.max(np.abs(out))
 out = np.tanh(out / max(peak, 1e-9) * 1.6) * 0.85
 pcm = (out * 32767).astype(np.int16)
-with wave.open('soundtrack.wav', 'wb') as w:
+with wave.open(OUT, 'wb') as w:
     w.setnchannels(1); w.setsampwidth(2); w.setframerate(SR)
     w.writeframes(pcm.tobytes())
-print('wrote soundtrack.wav', DUR, 's,', len(data['flaps']), 'flaps')
+print('wrote', OUT, DUR, 's,', len(data['flaps']), 'flaps')
