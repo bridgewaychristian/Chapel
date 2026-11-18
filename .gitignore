@@ -6,3 +6,5 @@ node_modules/
 countdown/frames/
 countdown/test.mp4
 countdown/flaps*.json
+elf-wrap/frames/
+elf-wrap/cues.json
