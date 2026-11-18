@@ -33,7 +33,7 @@
   .dot { position: absolute; left: 50%; background: #f1f1ee; }
   .top .ch { top: 0; }
   .bot .ch { top: -100%; }
-  .flap { visibility: hidden; will-change: transform; }
+  .flap { visibility: hidden; }
   .flap.top { transform-origin: 50% 100%; }
   .flap.bot { transform-origin: 50% 0%; }
   .shade { position: absolute; inset: 0; background: #000; opacity: 0; }
@@ -252,7 +252,10 @@ function setTxt(part, ch, tile) {
     part.c.innerHTML = dot(30) + dot(62);
   } else part.c.innerHTML = '<span>' + (ch === ' ' ? '&nbsp;' : ch) + '</span>';
 }
-function setVis(part, v) { const s = v ? 'visible' : 'hidden'; if (part.vis !== s) { part.d.style.visibility = s; part.vis = s; dirty = true; } }
+function setVis(part, v) {
+  const s = v ? 'visible' : 'hidden';
+  if (part.vis !== s) { part.d.style.visibility = s; part.vis = s; dirty = true; if (!v) part.d.style.transform = ''; }
+}
 function setOp(el, v) { if (el._o !== v) { el.style.opacity = v; el._o = v; dirty = true; } }
 
 function drawTile(tile, t) {
