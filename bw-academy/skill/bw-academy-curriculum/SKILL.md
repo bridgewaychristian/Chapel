@@ -35,7 +35,9 @@ Before any lesson list, draw clear lines between the pillars:
 
 Present the program map and get approval before writing lesson lists. If there's only one pillar and no others exist, skip this step.
 
-### Step 2: Scope and sequence for each pillar
+### Step 2: Scope and sequence for every pillar, all at once
+As soon as the program map is approved, write the scope and sequence for **all** pillars in one pass (for example 4 × 18 = 72 lessons), before building any lessons. Seeing every lesson side by side is what makes the overlap check reliable, and it lets the user approve the whole program in one go. Don't stop to ask for approval between pillars at this stage.
+
 Design principles:
 - **One big outcome** per pillar: "By the end of 6 weeks, learners will be able to…"
 - **Six weekly themes that build.** A typical arc: Foundation (what and why) → Understanding (core truths) → Obstacles (what gets in the way) → Practice (how to do it) → Community or Relationships (living it with others) → Multiplication (owning it and passing it on). Adapt the arc to the topic. When several pillars use this arc, vary each one's angle so learners don't feel the same six weeks over and over.
@@ -74,13 +76,15 @@ Use this shape for each pillar, then stop and ask for approval:
 **Assumptions:** …
 ```
 
-Ask: *"Does this work? Approve it as is, or tell me what to change (titles, order, weekly themes, emphasis, what belongs to which pillar)."* With several pillars, the user can approve them all at once or one at a time.
+Present every pillar in this shape, one after another, followed by a single **Overlap check** covering the whole program. When there are several pillars, also save the full set as `BW Academy Course Map.md` and `.docx` (status: planned; see below) and deliver them, since 50+ lessons are easier to review in a document than in chat. In chat, keep it to a short summary and the overlap check.
+
+Ask: *"Does this work? Approve it as is, or tell me what to change (titles, order, weekly themes, emphasis, what belongs to which pillar)."* The user can approve everything at once or approve some pillars and revise others.
 
 **Do not write lessons until the user approves.** Revise as often as they want; confirm small edits with a short summary of changes rather than reprinting everything.
 
 ## Phase 2: Build the lessons (after approval)
 
-Build one pillar at a time, in the approved order.
+Only now, with every pillar's plan approved, start writing the individual lessons. Build one pillar at a time, in the approved order, working through its 18 lessons. Then move on to the next pillar without waiting for another approval, unless the user asked to review between pillars.
 
 1. **Lesson format.** Write each lesson exactly in the BW Academy six-part format. If the `bw-academy-lesson` skill is available, follow it. Otherwise read `references/lesson-format.md`, which contains the same guidance and output template. Use the approved title, takeaway and anchor text. Set the header line to `# [Pillar] · Week [W], Session [N]: [Title]`, with N running from 1 to 18.
 2. **Track what you use as you write.** Keep a running list of every analogy, main story or illustration, Scripture passage, Explore resource and challenge used, and check each new lesson against that list and the Course Map. Each Hook can nod to the previous session.
