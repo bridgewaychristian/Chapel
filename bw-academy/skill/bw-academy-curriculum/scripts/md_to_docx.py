@@ -3,6 +3,12 @@
 
 Usage: python md_to_docx.py input.md output.docx
 
+If the lesson contains a teleprompter script (between the
+"=== TELEPROMPTER SCRIPT START/END ===" lines), it is laid out in the doc in a
+large, double-spaced reading style, and also saved next to the .docx as
+"<output name> - Teleprompter.txt" (plain text, ready to paste into a
+teleprompter app).
+
 Supported Markdown (keep to this subset):
   # Title            -> document title
   ## Heading         -> section bar; "## 1 · Hook" etc. picks up the section colour
@@ -60,6 +66,8 @@ def convert(src, dst):
     st.paragraph_format.space_after = Pt(6)
 
     para_buf = []
+    in_script = False
+    script_lines = []
     def flush():
         if para_buf:
             p = doc.add_paragraph(); add_inline(p, " ".join(para_buf)); para_buf.clear()
@@ -67,6 +75,30 @@ def convert(src, dst):
     for raw in open(src, encoding="utf-8").read().splitlines():
         line = raw.rstrip()
         s = line.strip()
+        if s.startswith("=== TELEPROMPTER SCRIPT START"):
+            flush(); in_script = True
+            p = doc.add_paragraph(); r = p.add_run("TELEPROMPTER SCRIPT: copy from here")
+            r.bold = True; r.font.size = Pt(9); r.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+            bottom_border(p, "9FC3EE", "8")
+            continue
+        if s.startswith("=== TELEPROMPTER SCRIPT END"):
+            in_script = False
+            p = doc.add_paragraph(); bottom_border(p, "9FC3EE", "8")
+            r = p.add_run("END OF SCRIPT"); r.bold = True; r.font.size = Pt(9)
+            r.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+            continue
+        if in_script:
+            script_lines.append(s)
+            if s:
+                p = doc.add_paragraph()
+                p.paragraph_format.line_spacing = 1.5
+                p.paragraph_format.space_after = Pt(10)
+                r = p.add_run(s); r.font.size = Pt(13)
+                if s.startswith("[") and s.endswith("]"):
+                    r.italic = True; r.font.color.rgb = RGBColor(0x77, 0x77, 0x77)
+                else:
+                    r.font.color.rgb = INK
+            continue
         if not s:
             flush(); continue
         if s.startswith("# "):
@@ -110,6 +142,12 @@ def convert(src, dst):
                 para_buf.append(s)
     flush()
     doc.save(dst)
+    if script_lines:
+        import os
+        txt = os.path.splitext(dst)[0] + " - Teleprompter.txt"
+        text = "\n".join(script_lines).strip()
+        text = re.sub(r"\n{3,}", "\n\n", text) + "\n"
+        open(txt, "w", encoding="utf-8").write(text)
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:

@@ -51,13 +51,14 @@ Then ask: *"Does this scope and sequence work? Approve it as is, or tell me what
    ```bash
    python <skill-dir>/scripts/md_to_docx.py lessons/W1-S01-short-title.md "output/W1-S01 Short Title.docx"
    ```
-   The script applies the BW Academy section colours (pink Hook, green Watch, yellow Think, coral Explore, blue Check In, teal Challenge) to the `## 1 ·` through `## 6 ·` headings. Keep to its Markdown subset: headings, bullets, `**bold**`, `*italic*` and `---`. Use bullets rather than numbered lists inside lessons, and don't use tables. Install `python-docx` with pip if it is missing.
+   The script applies the BW Academy section colours (pink Hook, green Watch, yellow Think, coral Explore, blue Check In, teal Challenge) to the `## 1 ·` through `## 6 ·` headings. Every lesson includes a full teleprompter script in the Watch section. The script lays it out in a large reading style in the doc and also saves it as `<doc name> - Teleprompter.txt`, ready to paste into a teleprompter app. Keep to its Markdown subset: headings, bullets, `**bold**`, `*italic*` and `---`. Use bullets rather than numbered lists inside lessons, and don't use tables. Install `python-docx` with pip if it is missing.
 4. **Also create `00 Course Overview.docx`** from the approved scope and sequence, using the same script.
 5. **Work week by week.** Build three lessons, convert them, and deliver or present those files before moving on, so the user sees progress and long sessions don't lose work. Don't pause for approval between weeks unless the user asked to review as you go.
-6. **Finish** by zipping everything into `[Pillar] BW Academy Course.zip` (the overview plus 18 lesson docs) and delivering it. Then list any items the user must verify or source, such as Explore links marked "to find" and teacher-video details.
+6. **Finish** by zipping everything into `[Pillar] BW Academy Course.zip` (the overview, 18 lesson docs and 18 teleprompter .txt files) and delivering it. Then list any items the user must verify or source, such as Explore links marked "to find" and teacher-video details.
 
 ## Quality check before delivering each week
-- All six parts are present and in order. Check In has exactly Pick One, Show It and Say It.
+- All six parts are present and in order. The Watch section has a teleprompter script of 700–1,400 words in plain spoken text, with no Markdown inside it.
+- The Teleprompter.txt file was created for each lesson. Check In has exactly Pick One, Show It and Say It.
 - The takeaway matches the approved plan and doesn't duplicate another lesson.
 - No fabricated links or quotations. Scripture references are cited.
 - Open the .docx, or convert it to PDF and look at it, to confirm the formatting rendered on at least the first lesson.
